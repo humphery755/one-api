@@ -1,0 +1,30 @@
+BUILD_PATH:=/build
+
+
+.PHONY: node
+node:
+	docker run -it --rm --privileged --net=host --platform=linux/amd64 \
+	-v $(shell pwd):/build \
+	-e DISABLE_ESLINT_PLUGIN='true' -e REACT_APP_VERSION=dev \
+	node:16 sh -c 'cd /build/web/ && bash '
+
+.PHONY: golang
+golang:
+	docker run -it --rm --privileged $(DNS) --net=host --platform=linux/amd64 \
+	-v $(shell pwd):/build \
+	-e "GOPROXY=https://goproxy.cn,direct" \
+	-v /usr/local/go:/go \
+	-v /var/run/docker.sock:/var/run/docker.sock \
+	-v $(HOME)/.pip/pip.conf:/root/.pip/pip.conf \
+ 	golang sh -c 'cd /build/ && bash '
+
+.PHONY: build
+build:
+	go mod download
+	go build -ldflags "-s -w -X 'one-api/common.Version=$(cat VERSION)' -extldflags '-static'" -o one-api
+
+.PHONY: run
+run:
+	#export SQL_DSN="root:rootcloud@tcp(mysql-dcloud.tydic.com:3306)/one-api" && go run main.go
+	go run main.go
+

@@ -26,6 +26,7 @@ const (
 	APITypeXunfei
 	APITypeAIProxyLibrary
 	APITypeTencent
+	APITypeOllama
 )
 
 var httpClient *http.Client
@@ -120,6 +121,8 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 		apiType = APITypeAIProxyLibrary
 	case common.ChannelTypeTencent:
 		apiType = APITypeTencent
+	case common.ChannelTypeOllama:
+		apiType = APITypeOllama
 	}
 	baseURL := common.ChannelBaseURLs[channelType]
 	requestURL := c.Request.URL.String()
@@ -194,6 +197,11 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 		}
 	case APITypeTencent:
 		fullRequestURL = "https://hunyuan.cloud.tencent.com/hyllm/v1/chat/completions"
+	case APITypeOllama:
+		fullRequestURL = "http://localhost:11434/api/generate"
+		if baseURL != "" {
+			fullRequestURL = fmt.Sprintf("%s/api/generate", baseURL)
+		}
 	case APITypeAIProxyLibrary:
 		fullRequestURL = fmt.Sprintf("%s/api/library/ask", baseURL)
 	}
@@ -321,6 +329,13 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 		aiProxyLibraryRequest := requestOpenAI2AIProxyLibrary(textRequest)
 		aiProxyLibraryRequest.LibraryId = c.GetString("library_id")
 		jsonStr, err := json.Marshal(aiProxyLibraryRequest)
+		if err != nil {
+			return errorWrapper(err, "marshal_text_request_failed", http.StatusInternalServerError)
+		}
+		requestBody = bytes.NewBuffer(jsonStr)
+	case APITypeOllama:
+		ollamaRequest := requestOpenAI2Ollama(textRequest)
+		jsonStr, err := json.Marshal(ollamaRequest)
 		if err != nil {
 			return errorWrapper(err, "marshal_text_request_failed", http.StatusInternalServerError)
 		}
@@ -632,6 +647,25 @@ func relayTextHelper(c *gin.Context, relayMode int) *OpenAIErrorWithStatusCode {
 			return nil
 		} else {
 			err, usage := tencentHandler(c, resp)
+			if err != nil {
+				return err
+			}
+			if usage != nil {
+				textResponse.Usage = *usage
+			}
+			return nil
+		}
+	case APITypeOllama:
+		if isStream {
+			err, responseText := ollamaStreamHandler(c, resp)
+			if err != nil {
+				return err
+			}
+			textResponse.Usage.PromptTokens = promptTokens
+			textResponse.Usage.CompletionTokens = countTokenText(responseText, textRequest.Model)
+			return nil
+		} else {
+			err, usage := ollamaHandler(c, resp)
 			if err != nil {
 				return err
 			}
